@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  AccountLabel:
+    Default: Email
+    Description: Email or Name, default is Email
+    Type: String
+  CurrentMonth:
+    Description: true | false for if current partial month included
+    Type: String
+  DayOfMonth:
+    Default: 6
+    Description: DayOfMonth for Schedule, default 6 - use 12 if you want to report
+      refunds and finalised Enterprise Support.
+    Type: Number
+  ListOfCostTags:
+    Description: Comma seperated list of all Cost Allocation Tags
+    Type: String
+  S3Bucket:
+    Description: S3 Bucket to store the report in
+    Type: String
+  SESRegion:
+    Default: us-east-1
+    Description: Region you have configured SES in (Default us-east-1)
+    Type: String
+  SESSendFrom:
+    Description: Email thats authorised in account for SES sending. Will not email
+      if blank
+    Type: String
+  SESSendTo:
+    Description: List of comma emails to send to
+    Type: String
+Resources:
+  CostExplorerReport:
+    Properties:
+      CodeUri: s3://s6538173/aws-cost-explorer-report-builds/633fd650ed0304f01dcb3d7667030c8c
+      Description: Function for generating / sending monthly cost report
+      Environment:
+        Variables:
+          ACCOUNT_LABEL:
+            Ref: AccountLabel
+          COST_TAGS:
+            Ref: ListOfCostTags
+          CURRENT_MONTH:
+            Ref: CurrentMonth
+          INC_SUPPORT: 'false'
+          S3_BUCKET:
+            Ref: S3Bucket
+          SES_FROM:
+            Ref: SESSendFrom
+          SES_REGION:
+            Ref: SESRegion
+          SES_SEND:
+            Ref: SESSendTo
+      Events:
+        MonthlyEvent:
+          Properties:
+            Schedule:
+              Fn::Sub: cron(0 1 ${DayOfMonth} * ? *)
+          Type: Schedule
+      FunctionName: CostExplorerReportLambda
+      Handler: lambda.main_handler
+      MemorySize: 256
+      Role:
+        Fn::GetAtt:
+        - CostExplorerReportLambdaIAMRole
+        - Arn
+      Runtime: python3.6
+      Timeout: 60
+    Type: AWS::Serverless::Function
+  CostExplorerReportLambdaIAMRole:
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Sid: AllowLambdaServiceToAssumeRole
+        Version: '2012-10-17'
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Path: /
+      Policies:
+      - PolicyDocument:
+          Statement:
+          - Action:
+            - ce:*
+            Effect: Allow
+            Resource: '*'
+          - Action:
+            - organizations:ListAccounts
+            Effect: Allow
+            Resource: '*'
+          - Action:
+            - ses:SendEmail
+            - ses:SendRawEmail
+            Effect: Allow
+            Resource: '*'
+          - Action:
+            - s3:PutObject
+            - s3:PutObjectAcl
+            Effect: Allow
+            Resource:
+              Fn::Sub: arn:aws:s3:::${S3Bucket}/*
+          Version: '2012-10-17'
+        PolicyName: root
+    Type: AWS::IAM::Role
+Transform: AWS::Serverless-2016-10-31
